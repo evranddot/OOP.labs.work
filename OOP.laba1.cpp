@@ -1,4 +1,4 @@
-﻿#include <iostream>
+#include <iostream>
 #include <windows.h>
 #include "GameField.h"
 #include "UnitFactory.h"
@@ -56,7 +56,7 @@ int main() {
 
 
 
-    field1.add_unit(bounty_base->createUnit(Role::Machine, 11, 11));
+    field1.add_unit(bounty_base->createUnit(Role::Machine, 5, 13));
     field1.add_unit(rebel_base->createUnit(Role::Standard, 3, 2));
     field1.add_unit(rebel_base->createUnit(Role::Heavy, 1, 1));
     field1.add_unit(rebel_base->createUnit(Role::Standard, 1, 3));
@@ -114,8 +114,29 @@ int main() {
     std::cout << "\nШаг 3: Поле боя после атаки:\n\n";
     field1.display();
     
+    Sleep(CONST_SLEEP);
+
     std::cout << "Информация об юнитах после атаки\n";
     print_units_info(field1);
+    
+    Sleep(CONST_SLEEP);
+
+    std::cout << "\nШаг 4: взаимодействие с нейтральными предметами:\n\n";
+    for (auto& creature : field1) {
+        if (creature.get_type().find("Crawler") != std::string::npos) {
+            field1.move_unit(creature, 5, 12); 
+            break;
+        }
+    }
+    std::cout << "\n";
+    field1.display();
+
+    Sleep(CONST_SLEEP);
+
+    std::cout << "Информация об юнитах после 4 шага\n";
+    print_units_info(field1);
+
+    Sleep(CONST_SLEEP);
 
     Sleep(CONST_SLEEP);
 
