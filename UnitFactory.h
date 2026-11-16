@@ -4,7 +4,7 @@
 #include "Unit.h"
 #include "Units.h"
 
-enum class Role { Standard, Heavy, Machine };
+
 
 class UnitFactory {
 public:

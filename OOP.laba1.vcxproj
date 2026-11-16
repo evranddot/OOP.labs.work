@@ -128,8 +128,11 @@
   <ItemGroup>
     <ClInclude Include="Armor.h" />
     <ClInclude Include="Attack.h" />
+    <ClInclude Include="Base.h" />
     <ClInclude Include="GameField.h" />
     <ClInclude Include="Health.h" />
+    <ClInclude Include="Objects.h" />
+    <ClInclude Include="Terrain.h" />
     <ClInclude Include="Unit.h" />
     <ClInclude Include="UnitFactory.h" />
     <ClInclude Include="Units.h" />

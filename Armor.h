@@ -31,4 +31,12 @@ public:
 			return effective_damage;
 		}
 	}
+
+	void add_armor(int bonus) {
+		if (bonus > 0) armor_value += bonus;
+	}
+
+	void remove_armor(int bonus) {
+		if (bonus > 0) armor_value = (std::max)(0, armor_value - bonus);
+	}
 };
