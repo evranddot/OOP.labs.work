@@ -1,144 +1,187 @@
-#include <iostream>
+﻿#include <iostream>
+#include <sstream>
+#include <string>
+#include <functional>
 #include <windows.h>
+#include <conio.h>
 #include "GameField.h"
 #include "UnitFactory.h"
 #include "Base.h"
+#include "Objects.h"
+#include "GameFacade.h"
 
-const int CONST_SLEEP = 500;
-
-
-void print_units_info(const GameField& field) {
-    size_t counter = 1;
-    for (const auto& creature : field) {
-        std::cout << counter++ << " : [" << creature.get_symbol() << "] " << creature.get_type()
-            << " на позиции (" << creature.get_x() << ", " << creature.get_y() << ")"
-            << " ХП: " << creature.get_health_obj().get_health()
-            << " Броня: " << creature.get_armor_obj().get_armor() << '\n';
-    }
-    std::cout << '\n';
-}
-
-
-
-
-
-int main() {
+void init_console() {
     setlocale(LC_ALL, "Russian");
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
 
-    BountyFactory bounty_fab;
-    RebelFactory rebel_fab;
-    ImperialFactory imperial_fab;
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD dwMode = 0;
+    if (GetConsoleMode(hOut, &dwMode)) {
+        SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
+    std::cout << "\033[2J\033[H";
+}
 
+// Выполняет действие (печатая логи внизу), а затем точечно обновляет единственное поле в {0, 0}
+void execute_and_update_screen(GameFacade& game, const std::function<void()>& action) {
+    action();
+    game.renderField();
+}
 
-    std::cout << "Шаг 1: Создание поля и наполнение юнитами\n";
-    GameField field1(20, 20, 12);
-    field1.generate_random_terrain();
+// Интерактивное управление юнитом с помощью WASD
+void control_unit_wasd(GameFacade& game, int unit_id) {
+    int x = 0, y = 0, moves_left = 0;
+    if (!game.getUnitState(unit_id, x, y, moves_left)) {
+        std::cout << "[Управление] Юнит с ID:" << unit_id << " не найден!\n";
+        return;
+    }
 
-    auto rebel_base = std::make_shared<Base>("Rebel Alliance", 0, 0, 1200, 10, 15, std::make_unique<RebelFactory>(), 'V');
-    auto imperial_base = std::make_shared<Base>("Galactic Empire", 19, 19, 1200, 10, 20, std::make_unique<ImperialFactory>(), 'I');
-    auto bounty_base = std::make_shared<Base>("Bounty Hunters", 15, 3, 1200, 10, 25, std::make_unique<BountyFactory>(), 'B');
+    std::cout << "\n==================== РЕЖИМ УПРАВЛЕНИЯ WASD ====================\n"
+        << "  Юнит ID: " << unit_id << " | Клавиши: [W/A/S/D] Шаг | [Q / Esc] Выход\n"
+        << "===============================================================\n";
 
-    field1.add_base(rebel_base);
-    field1.add_base(imperial_base);
-    field1.add_base(bounty_base);
+    while (true) {
+        game.getUnitState(unit_id, x, y, moves_left);
+        game.renderField();
 
-    auto hangar = std::make_shared<Hangar>(5, 12);
-    auto trap = std::make_shared<Trap>(13, 2);
-    auto warehouse = std::make_shared<Warehouse>(7, 7);
-    auto food = std::make_shared<Food>(4, 16);
-
-    field1.add_neutral_object(hangar);
-    field1.add_neutral_object(trap);
-    field1.add_neutral_object(warehouse);
-    field1.add_neutral_object(food);
-
-
-
-    field1.add_unit(bounty_base->createUnit(Role::Machine, 5, 13));
-    field1.add_unit(rebel_base->createUnit(Role::Standard, 3, 2));
-    field1.add_unit(rebel_base->createUnit(Role::Heavy, 1, 1));
-    field1.add_unit(rebel_base->createUnit(Role::Standard, 1, 3));
-    field1.add_unit(imperial_base->createUnit(Role::Heavy, 10, 2));
-    field1.add_unit(imperial_base->createUnit(Role::Standard, 10, 4));
-    field1.add_unit(imperial_base->createUnit(Role::Standard, 11, 5));
-    field1.add_unit(imperial_base->createUnit(Role::Machine, 11, 7));
-
-    std::cout << "Карта мира:\n\n";
-    field1.display();
-
-    Sleep(CONST_SLEEP);
-
-    std::cout << "Шаг 2: Список юнитов на поле:\n";
-    print_units_info(field1);
-
-    Sleep(CONST_SLEEP);
-
-    Unit* atat = nullptr;
-    for (auto& creature : field1) {
-        if (creature.get_type().find("AT-AT") != std::string::npos) {
-            atat = &creature;
+        if (moves_left <= 0) {
+            std::cout << "[Лимит хода] Очки хода закончились! Нажмите любую клавишу для выхода...\n";
+            _getch();
             break;
         }
-    }
 
-    if (atat != nullptr) {
-        for (int volley = 1; volley <= 5; ++volley) {
-            for (auto& target : field1) {
-                if (target.get_type().find("Rebel") != std::string::npos && !target.get_health_obj().is_dead()) {
-                    if (atat->attack_unit(target)) {
-                        break;
-                    }
-                }
-            }
+        int ch = _getch();
+        if (ch == 0 || ch == 224) {
+            int arrow = _getch();
+            if (arrow == 72) ch = 'w';
+            else if (arrow == 80) ch = 's';
+            else if (arrow == 75) ch = 'a';
+            else if (arrow == 77) ch = 'd';
         }
-    }
 
-    field1.remove_dead_units();
-
-    Sleep(CONST_SLEEP);
-
-    for (auto& creature : field1) {
-        if (creature.get_type().find("Rebel") != std::string::npos && !creature.get_health_obj().is_dead()) {
-            int old_x = creature.get_x();
-            int old_y = creature.get_y();
-
-            if (!field1.move_unit(creature, old_x, old_y + 2)) {
-                field1.move_unit(creature, old_x + 2, old_y);
-            }
-        }
-    }
-
-
-    std::cout << "\nШаг 3: Поле боя после атаки:\n\n";
-    field1.display();
-    
-    Sleep(CONST_SLEEP);
-
-    std::cout << "Информация об юнитах после атаки\n";
-    print_units_info(field1);
-    
-    Sleep(CONST_SLEEP);
-
-    std::cout << "\nШаг 4: взаимодействие с нейтральными предметами:\n\n";
-    for (auto& creature : field1) {
-        if (creature.get_type().find("Crawler") != std::string::npos) {
-            field1.move_unit(creature, 5, 12); 
+        if (ch == 27 || ch == 'q' || ch == 'Q') {
             break;
         }
+
+        int nx = x, ny = y;
+        if (ch == 'w' || ch == 'W') ny -= 1;
+        else if (ch == 's' || ch == 'S') ny += 1;
+        else if (ch == 'a' || ch == 'A') nx -= 1;
+        else if (ch == 'd' || ch == 'D') nx += 1;
+        else continue;
+
+        game.moveUnit(unit_id, nx, ny);
     }
-    std::cout << "\n";
-    field1.display();
+}
 
-    Sleep(CONST_SLEEP);
+void run_demo_scenarios(GameFacade& game) {
+    std::cout << "=== ДЕМОНСТРАЦИОННЫЕ СЦЕНАРИИ ===\n";
+    game.processInput("create unit infantry at 5,5");
+    game.processInput("create unit infantry at 6,5");
+    game.processInput("move unit 7 to 7,7");
+    game.processInput("move unit 8 to 7,8");
+    game.processInput("attack unit 7 target 8");
+    game.processInput("build barracks at 3,3");
+    game.processInput("build laboratory at 3,4");
+    game.nextTurn();
+    game.nextTurn();
+    game.processInput("research attack_upgrade");
+    game.processInput("produce infantry in 1");
+    game.processInput("collect unit 7 from 1");
+    game.processInput("distribute wood to barracks 50");
+    game.processInput("stats");
+}
 
-    std::cout << "Информация об юнитах после 4 шага\n";
-    print_units_info(field1);
+int main() {
+    init_console();
 
-    Sleep(CONST_SLEEP);
+    GameField field(20, 20, 25);
+    field.init_default_map();
 
-    Sleep(CONST_SLEEP);
+    auto player_base = std::make_shared<Base>("Player Base", 0, 0, 1200, 20, 15, std::make_unique<RebelFactory>(), 'V');
+    auto enemy_base = std::make_shared<Base>("Empire Base", 19, 19, 1200, 20, 20, std::make_unique<ImperialFactory>(), 'I');
+    field.add_base(player_base);
+    field.add_base(enemy_base);
+
+    // --- Инициализация нейтральных объектов на карте ---
+    field.add_neutral_object(std::make_shared<Hangar>(3, 2));      // # Ремонт/лечение
+    field.add_neutral_object(std::make_shared<Warehouse>(2, 4));   // & Бонус брони
+    field.add_neutral_object(std::make_shared<Food>(6, 3));        // @ Бонус атаки
+    field.add_neutral_object(std::make_shared<Trap>(5, 6));        // ! Ловушка
+
+    field.add_neutral_object(std::make_shared<Hangar>(16, 17));    // # Ремонт/лечение
+    field.add_neutral_object(std::make_shared<Warehouse>(17, 15)); // & Бонус брони
+    field.add_neutral_object(std::make_shared<Food>(13, 16));      // @ Бонус атаки
+    field.add_neutral_object(std::make_shared<Trap>(14, 13));      // ! Ловушка
+    // ---------------------------------------------------
+
+    // --- Инициализация 6 стартовых юнитов разных фракций (по 3 на каждую базу) ---
+    std::ostringstream startup_log;
+    std::streambuf* old_buf = std::cout.rdbuf(startup_log.rdbuf());
+
+    // Фракция Повстанцев (привязаны к player_base)
+    field.spawn_faction_unit(*player_base, Role::Standard, 1, 0, "Патруль базы Повстанцев");  // ID: 1
+    field.spawn_faction_unit(*player_base, Role::Heavy, 0, 1, "Охрана базы Повстанцев");   // ID: 2
+    field.spawn_faction_unit(*player_base, Role::Machine, 1, 1, "Поддержка Повстанцев");     // ID: 3
+
+    // Фракция Империи (привязаны к enemy_base)
+    field.spawn_faction_unit(*enemy_base, Role::Standard, 18, 19, "Патруль базы Империи");    // ID: 4
+    field.spawn_faction_unit(*enemy_base, Role::Heavy, 19, 18, "Охрана базы Империи");     // ID: 5
+    field.spawn_faction_unit(*enemy_base, Role::Machine, 18, 18, "Тяжёлая техника Империи"); // ID: 6
+
+    std::cout.rdbuf(old_buf);
+    // -----------------------------------------------------------------------------
+
+    GameFacade game(field, player_base);
+
+    // Очищаем экран один раз при старте, рисуем поле в {0, 0} и выводим стартовый лог строго под полем
+    std::cout << "\033[2J\033[H";
+    game.renderField();
+    std::cout << startup_log.str();
+
+    std::string input;
+    while (true) {
+        std::cout << "\nВведите команду > ";
+        if (!std::getline(std::cin, input)) break;
+        if (input.empty()) continue;
+
+        if (input == "exit" || input == "quit") {
+            break;
+        }
+        else if (input.rfind("wasd ", 0) == 0) {
+            try {
+                int id = std::stoi(input.substr(5));
+                control_unit_wasd(game, id);
+                execute_and_update_screen(game, [&]() {
+                    std::cout << "[Управление] Выход из режима WASD для юнита ID:" << id << ".\n";
+                    });
+            }
+            catch (...) {
+                std::cout << "[Синтаксис] Используйте: wasd <unitId>\n";
+            }
+        }
+        else if (input == "demo") {
+            execute_and_update_screen(game, [&]() {
+                run_demo_scenarios(game);
+                });
+        }
+        else if (input == "turn") {
+            execute_and_update_screen(game, [&]() {
+                game.nextTurn();
+                });
+        }
+        else if (input == "undo") {
+            execute_and_update_screen(game, [&]() {
+                game.undo();
+                });
+        }
+        else {
+            execute_and_update_screen(game, [&]() {
+                game.processInput(input);
+                });
+        }
+    }
 
     return 0;
 }

@@ -5,12 +5,15 @@
 #include <stdexcept>
 #include <iterator>
 #include <cstddef>
+#include <utility>
 #include "Unit.h"
 #include "Terrain.h"
+#include "Proxy.h"
 #include "Base.h"
 #include "Objects.h"
-#include <random>
+#include "Display.h"
 
+class Building;
 
 class GameField {
 private:
@@ -19,17 +22,14 @@ private:
     std::vector<std::unique_ptr<Unit>> units;
     std::vector<std::vector<std::shared_ptr<Terrain>>> terrain_grid;
     std::vector<std::shared_ptr<NeutralObject>> neutral_objects;
+    std::vector<std::shared_ptr<Base>> bases;
+    Display renderer;
 
-    bool is_cell_occupied(int x, int y) const {
-        for (const auto& u : units) {
-            if (u && u->get_x() == x && u->get_y() == y) return true;
-        }
-        return false;
+    bool is_within_bounds(int x, int y) const noexcept {
+        return x >= 0 && x < width && y >= 0 && y < height;
     }
 
-    std::vector<std::shared_ptr<Base>> bases;
-
-    bool is_cell_occupied_base(int x, int y) const {
+    bool is_cell_occupied(int x, int y) const {
         for (const auto& u : units) {
             if (u && u->get_x() == x && u->get_y() == y) return true;
         }
@@ -38,9 +38,6 @@ private:
         }
         return false;
     }
-
-
-
 
 public:
     template <bool IsConst>
@@ -95,50 +92,50 @@ public:
     }
 
     GameField(const GameField& other)
-        : width(other.width), height(other.height), max_units(other.max_units), terrain_grid(other.terrain_grid) {
+        : width(other.width), height(other.height), max_units(other.max_units),
+        terrain_grid(other.terrain_grid), neutral_objects(other.neutral_objects), bases(other.bases) {
         units.reserve(other.units.size());
         for (const auto& u : other.units) {
             if (u) units.push_back(u->clone());
         }
     }
 
-    GameField& operator=(const GameField& other) {
-        if (this != &other) {
-            width = other.width;
-            height = other.height;
-            max_units = other.max_units;
-            terrain_grid = other.terrain_grid;
-            units.clear();
-            units.reserve(other.units.size());
-            for (const auto& u : other.units) {
-                if (u) units.push_back(u->clone());
-            }
-        }
+    GameField& operator=(GameField other) noexcept {
+        std::swap(width, other.width);
+        std::swap(height, other.height);
+        std::swap(max_units, other.max_units);
+        std::swap(units, other.units);
+        std::swap(terrain_grid, other.terrain_grid);
+        std::swap(neutral_objects, other.neutral_objects);
+        std::swap(bases, other.bases);
         return *this;
     }
 
     GameField(GameField&& other) noexcept
         : width(other.width), height(other.height), max_units(other.max_units),
-        units(std::move(other.units)), terrain_grid(std::move(other.terrain_grid)) {
-        other.width = 0; other.height = 0; other.max_units = 0;
-    }
-
-    GameField& operator=(GameField&& other) noexcept {
-        if (this != &other) {
-            width = other.width;
-            height = other.height;
-            max_units = other.max_units;
-            units = std::move(other.units);
-            terrain_grid = std::move(other.terrain_grid);
-            other.width = 0; other.height = 0; other.max_units = 0;
-        }
-        return *this;
+        units(std::move(other.units)), terrain_grid(std::move(other.terrain_grid)),
+        neutral_objects(std::move(other.neutral_objects)), bases(std::move(other.bases)) {
+        other.width = 0;
+        other.height = 0;
+        other.max_units = 0;
     }
 
     ~GameField() = default;
 
+    bool is_cell_free(int x, int y) const {
+        return is_within_bounds(x, y) && !is_cell_occupied(x, y);
+    }
+
+    Unit* get_unit(size_t index) {
+        return (index < units.size()) ? units[index].get() : nullptr;
+    }
+
+    const Unit* get_unit(size_t index) const {
+        return (index < units.size()) ? units[index].get() : nullptr;
+    }
+
     void set_terrain(int x, int y, std::unique_ptr<Terrain> terrain) {
-        if (x >= 0 && x < width && y >= 0 && y < height) {
+        if (is_within_bounds(x, y)) {
             terrain_grid[y][x] = std::make_shared<TerrainProxy>(std::move(terrain));
         }
     }
@@ -147,7 +144,7 @@ public:
         if (!base) return false;
         int x = base->get_x();
         int y = base->get_y();
-        if (x < 0 || x >= width || y < 0 || y >= height || is_cell_occupied(x, y)) {
+        if (!is_cell_free(x, y)) {
             std::cout << "[Ошибка] Невозможно разместить базу на (" << x << ", " << y << ")!\n";
             return false;
         }
@@ -155,13 +152,12 @@ public:
         return true;
     }
 
-
     bool add_unit(std::unique_ptr<Unit> unit) {
         if (!unit) return false;
         int x = unit->get_x();
         int y = unit->get_y();
 
-        if (x < 0 || x >= width || y < 0 || y >= height) {
+        if (!is_within_bounds(x, y)) {
             std::cout << "[Ошибка] Координаты юнита выходят за границы поля!\n";
             return false;
         }
@@ -185,8 +181,25 @@ public:
         return true;
     }
 
+    // Удобный метод спавна юнита напрямую от конкретной базы с привязкой наблюдателя
+    Unit* spawn_faction_unit(Base& base, Role role, int x, int y, const std::string& initial_order = "") {
+        auto unit = base.createUnit(role, x, y);
+        if (!unit) return nullptr;
+
+        if (!initial_order.empty()) {
+            unit->set_order(initial_order);
+        }
+
+        Unit* raw_ptr = unit.get();
+        if (!add_unit(std::move(unit))) {
+            base.unregisterUnit(raw_ptr->get_id());
+            return nullptr;
+        }
+        return raw_ptr;
+    }
+
     bool move_unit(Unit& unit, int new_x, int new_y) {
-        if (new_x < 0 || new_x >= width || new_y < 0 || new_y >= height) {
+        if (!is_within_bounds(new_x, new_y)) {
             std::cout << "[Предупреждение] Ход невозможен: координаты (" << new_x << ", " << new_y << ") за пределами поля!\n";
             return false;
         }
@@ -207,10 +220,7 @@ public:
 
         for (auto& obj : neutral_objects) {
             if (obj && !obj->consumed() && obj->get_x() == new_x && obj->get_y() == new_y) {
-                if (auto hangar = std::dynamic_pointer_cast<Hangar>(obj)) unit + *hangar;
-                else if (auto trap = std::dynamic_pointer_cast<Trap>(obj)) unit - *trap;
-                else if (auto warehouse = std::dynamic_pointer_cast<Warehouse>(obj)) unit** warehouse;
-                else if (auto food = std::dynamic_pointer_cast<Food>(obj)) unit / *food;
+                obj->interact(unit);
             }
         }
 
@@ -236,7 +246,7 @@ public:
     void remove_dead_units() {
         for (auto it = units.begin(); it != units.end(); ) {
             if ((*it)->get_health_obj().is_dead()) {
-                std::cout << "Юнит " << (*it)->get_type() << " погиб и удален.\n";
+                std::cout << "Юнит " << (*it)->get_type() << " погиб и удален с поля.\n";
                 it = units.erase(it);
             }
             else {
@@ -255,79 +265,44 @@ public:
         return true;
     }
 
-    void display() const {
-        std::vector<std::vector<std::string>> display_grid(height, std::vector<std::string>(width, "\033[33m.\033[0m"));
+    int get_width() const noexcept { return width; }
+    int get_height() const noexcept { return height; }
+    size_t get_units_count() const noexcept { return units.size(); }
 
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                if (terrain_grid[y][x]) {
-                    display_grid[y][x] = terrain_grid[y][x]->getSymbol();
-                }
-            }
-        }
-
-        for (const auto& obj : neutral_objects) {
-            if (obj && !obj->consumed() && obj->get_x() >= 0 && obj->get_x() < width && obj->get_y() >= 0 && obj->get_y() < height) {
-                display_grid[obj->get_y()][obj->get_x()] = obj->get_symbol();
-            }
-        }
-
-        for (const auto& b : bases) {
-            if (b && !b->is_destroyed() && b->get_x() >= 0 && b->get_x() < width && b->get_y() >= 0 && b->get_y() < height) {
-                display_grid[b->get_y()][b->get_x()] = std::string("\033[95m") + b->get_symbol() + "\033[0m";
-            }
-        }
-
-        for (const auto& u : units) {
-            if (u->get_x() >= 0 && u->get_x() < width && u->get_y() >= 0 && u->get_y() < height) {
-                display_grid[u->get_y()][u->get_x()] = std::string(1,u->get_symbol());
-            }
-        }
-
-        for (int x = 0; x < width + 2; ++x) std::cout << "X ";
-        std::cout << '\n';
-
-        for (int y = 0; y < height; ++y) {
-            std::cout << "X ";
-            for (int x = 0; x < width; ++x) std::cout << display_grid[y][x] << ' ';
-            std::cout << "X \n";
-        }
-
-        for (int x = 0; x < width + 2; ++x) std::cout << "X ";
-        std::cout << "\n\n";
+    const Terrain* get_terrain(int x, int y) const {
+        return is_within_bounds(x, y) ? terrain_grid[y][x].get() : nullptr;
     }
 
-    void generate_random_terrain() {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<int> dist(1, 100);
+    const std::vector<std::shared_ptr<NeutralObject>>& get_neutral_objects() const noexcept {
+        return neutral_objects;
+    }
 
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                int roll = dist(gen);
-                if (roll <= 15) {
-                    set_terrain(x, y, std::make_unique<Forest>());
-                }
-                else if (roll <= 25) {
-                    set_terrain(x, y, std::make_unique<Mountains>());
-                }
-                else if (roll <= 35) {
-                    set_terrain(x, y, std::make_unique<Ravines>());
-                }
-            }
-        }
+    const std::vector<std::shared_ptr<Base>>& get_bases() const noexcept {
+        return bases;
+    }
+
+    void init_default_map() {
+        Display::load_default_map(*this);
+    }
+
+    void load_map_from_strings(const std::vector<std::string>& layout) {
+        Display::load_map(*this, layout);
+    }
+
+    // Отрисовка только одного актуального поля
+    void display(const std::vector<std::unique_ptr<Building>>* buildings = nullptr,
+        bool overwrite = true) const {
+        renderer.render(*this, buildings, overwrite);
     }
 
     bool add_neutral_object(std::shared_ptr<NeutralObject> obj) {
         if (!obj) return false;
         int x = obj->get_x();
         int y = obj->get_y();
-        if (x < 0 || x >= width || y < 0 || y >= height || is_cell_occupied(x, y)) {
+        if (!is_cell_free(x, y)) {
             return false;
         }
         neutral_objects.push_back(std::move(obj));
         return true;
     }
-
-    size_t get_units_count() const noexcept { return units.size(); }
 };
