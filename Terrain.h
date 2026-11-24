@@ -4,6 +4,7 @@
 #include <iostream>
 
 
+
 enum class Role { Standard, Heavy, Machine };
 using UnitType = Role;
 
@@ -26,10 +27,10 @@ public:
     }
 
     double getDefenseBonus(UnitType type) const override {
-        return 0.0;
+        return 0;
     }
 
-    std::string getSymbol() const override { return "\033[33m*\033[0m"; }
+    std::string getSymbol() const override { return "\033[33m.\033[0m"; }
     std::string getName() const override { return "Земля"; }
 };
 
@@ -41,7 +42,7 @@ public:
     }
 
     double getDefenseBonus(UnitType type) const override {
-        return 0.0;
+        return 0;
     }
 
     std::string getSymbol() const override { return "\033[38;5;172m^\033[0m"; }
@@ -56,7 +57,7 @@ public:
     }
 
     double getDefenseBonus(UnitType type) const override {
-        return 0.0;
+        return 0;
     }
 
     std::string getSymbol() const override { return "\033[33m_\033[0m"; }
@@ -70,7 +71,7 @@ public:
     }
 
     double getDefenseBonus(UnitType type) const override {
-        return 10.0;
+        return 10;
     }
 
     std::string getSymbol() const override { return "\033[32m*\033[0m"; }
@@ -78,45 +79,4 @@ public:
 };
 
 
-class TerrainProxy : public Terrain {
-private:
-    mutable std::unique_ptr<Terrain> real_terrain;
 
-
-    void ensure_initialized() const {
-        if (!real_terrain) {
-            real_terrain = std::make_unique<Ground>();
-        }
-    }
-
-public:
- 
-    explicit TerrainProxy(std::unique_ptr<Terrain> terrain = nullptr)
-        : real_terrain(std::move(terrain)) {
-    }
-
-    bool isPassable(UnitType type) const override {
-        ensure_initialized();
-        bool allowed = real_terrain->isPassable(type);
-        if (!allowed) {
-            std::cout << " Доступ на клетку '" << real_terrain->getName() << "' запрещён для данного типа юнита!\n";
-        }
-        return allowed;
-    }
-
-    double getDefenseBonus(UnitType type) const override {
-        ensure_initialized();
-        double bonus = real_terrain->getDefenseBonus(type);
-        return bonus;
-    }
-
-    std::string getSymbol() const override {
-        ensure_initialized();
-        return real_terrain->getSymbol();
-    }
-
-    std::string getName() const override {
-        ensure_initialized();
-        return real_terrain->getName();
-    }
-};
